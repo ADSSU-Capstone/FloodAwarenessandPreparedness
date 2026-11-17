@@ -40,18 +40,14 @@ st.markdown(
         color: #FFFFFF;
         margin-bottom: 25px;
         box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+        text-align: center;
     }
     .main-title { 
         font-family: 'Georgia', serif;
         font-size: 2.2rem; 
         font-weight: 700; 
-        margin-bottom: 5px;
+        margin-bottom: 0px;
         color: #F4EADB;
-    }
-    .main-sub { 
-        font-family: 'Arial', sans-serif;
-        color: #A3C6C4; 
-        font-size: 1rem; 
     }
     
     /* KPI Cards - Seafoam & Sand */
@@ -149,7 +145,6 @@ st.markdown(
     """
     <div class="header-container">
         <div class="main-title">Flood Preparedness & Risk Perception</div>
-        <div class="main-sub">A Coastal & Earthy Data Assessment of Community Flood Awareness</div>
     </div>
     """, 
     unsafe_allow_html=True

@@ -10,18 +10,11 @@ import streamlit as st
 import plotly.express as px
 import plotly.graph_objects as go
 
-from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
 from sklearn.linear_model import LogisticRegression
-from sklearn.naive_bayes import MultinomialNB
-from sklearn.svm import LinearSVC
 from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier
-from sklearn.calibration import CalibratedClassifierCV
-from sklearn.metrics import (
-    accuracy_score, precision_score, recall_score, f1_score,
-    confusion_matrix,
-)
+from sklearn.metrics import accuracy_score, f1_score
 from sklearn.cluster import KMeans
 
 st.set_page_config(
@@ -30,35 +23,137 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
+# --- CUSTOM CSS: EARTHY & SEA TONES ---
 st.markdown(
     """
     <style>
-    .main-title { font-size: 2.0rem; font-weight: 800; color: #0b3d5c; margin-bottom: 0.1rem; }
-    .main-sub { color: #4a6572; font-size: 0.93rem; margin-bottom: 1.0rem; }
-    .kpi-card { background: #f4f8fb; border: 1px solid #d3e2ec; border-radius: 10px;
-                padding: 14px 18px; margin-bottom: 8px; }
-    .kpi-value { font-size: 2.05rem; font-weight: 800; color: #0b3d5c; line-height: 1.1; }
-    .kpi-label { font-size: 0.8rem; color: #4a6572; text-transform: uppercase; letter-spacing: 0.6px; }
-    .interp-box { background: #eef6f1; border-left: 5px solid #2e7d5b; border-radius: 6px;
-                  padding: 10px 14px; font-size: 0.9rem; color: #1f3d2f; margin: 6px 0 18px 0; }
-    .justify-box { background: #fdf6ec; border-left: 5px solid #b58122; border-radius: 6px;
-                   padding: 10px 14px; font-size: 0.9rem; color: #4a3a12; margin-bottom: 16px; }
-    .warn-box { background: #fdecec; border-left: 5px solid #b23b3b; border-radius: 6px;
-                padding: 10px 14px; font-size: 0.9rem; color: #5c1f1f; margin-bottom: 16px; }
-    .stTabs [data-baseweb="tab-list"] { gap: 6px; flex-wrap: wrap; }
-    .stTabs [data-baseweb="tab"] { background: #e8eef3; border: 1px solid #c9d8e3;
-        border-radius: 6px; padding: 8px 14px; font-weight: 600; color: #274b63; }
-    .stTabs [aria-selected="true"] { background: #0b3d5c !important; color: #ffffff !important;
-        border: 1px solid #0b3d5c !important; }
+    /* Main Background - Soft Sand */
+    .stApp {
+        background-color: #FAF9F6;
+    }
+    
+    /* Header - Deep Sea Navy */
+    .header-container {
+        background: linear-gradient(135deg, #1A3644 0%, #0F2027 100%);
+        padding: 30px;
+        border-radius: 12px;
+        color: #FFFFFF;
+        margin-bottom: 25px;
+        box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+    }
+    .main-title { 
+        font-family: 'Georgia', serif;
+        font-size: 2.2rem; 
+        font-weight: 700; 
+        margin-bottom: 5px;
+        color: #F4EADB;
+    }
+    .main-sub { 
+        font-family: 'Arial', sans-serif;
+        color: #A3C6C4; 
+        font-size: 1rem; 
+    }
+    
+    /* KPI Cards - Seafoam & Sand */
+    .kpi-card { 
+        background-color: #FFFFFF; 
+        border-left: 6px solid #467A7E; 
+        border-radius: 4px;
+        padding: 20px; 
+        margin-bottom: 15px;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+    }
+    .kpi-value { 
+        font-family: 'Georgia', serif;
+        font-size: 2.2rem; 
+        font-weight: 700; 
+        color: #1A3644; 
+        line-height: 1.1; 
+    }
+    .kpi-label { 
+        font-size: 0.85rem; 
+        color: #5A6B6B; 
+        text-transform: uppercase; 
+        letter-spacing: 1px;
+        margin-top: 5px;
+    }
+    
+    /* Interpretation Box - Seafoam Tint */
+    .interp-box { 
+        background-color: #E8F0F0; 
+        border-left: 5px solid #467A7E; 
+        border-radius: 0 8px 8px 0;
+        padding: 15px; 
+        font-size: 0.95rem; 
+        color: #1A3644; 
+        margin: 10px 0 25px 0;
+        font-style: italic;
+    }
+    
+    /* Justification Box - Warm Sand */
+    .justify-box { 
+        background-color: #F4EADB; 
+        border-left: 5px solid #C29B6E; 
+        border-radius: 0 8px 8px 0;
+        padding: 15px; 
+        font-size: 0.95rem; 
+        color: #4A3A28; 
+        margin-bottom: 25px;
+    }
+    
+    /* Warning Box - Terracotta */
+    .warn-box { 
+        background-color: #FDF0ED; 
+        border-left: 5px solid #C06C5C; 
+        border-radius: 0 8px 8px 0;
+        padding: 15px; 
+        font-size: 0.95rem; 
+        color: #5C2E25; 
+        margin-bottom: 25px;
+    }
+
+    /* Custom Tabs - File Folder Style */
+    .stTabs [data-baseweb="tab-list"] { 
+        gap: 8px; 
+        flex-wrap: wrap;
+        border-bottom: 2px solid #467A7E;
+    }
+    .stTabs [data-baseweb="tab"] { 
+        background-color: #E8F0F0; 
+        border: 1px solid #A3C6C4; 
+        border-bottom: none;
+        border-radius: 8px 8px 0 0; 
+        padding: 10px 18px; 
+        font-weight: 600; 
+        color: #1A3644;
+        transition: all 0.2s;
+    }
+    .stTabs [aria-selected="true"] { 
+        background-color: #1A3644 !important; 
+        color: #F4EADB !important; 
+        border: 1px solid #1A3644 !important;
+    }
     .stTabs [data-baseweb="tab-highlight"] { display: none; }
-    .stTabs [data-baseweb="tab-border"] { display: none; }
+    
+    /* Sidebar Styling */
+    section[data-testid="stSidebar"] {
+        background-color: #F4EADB;
+        border-right: 2px solid #C29B6E;
+    }
     </style>
     """,
     unsafe_allow_html=True,
 )
 
-st.markdown('<div class="main-title">Flood Preparedness & Risk Perception Dashboard</div>', unsafe_allow_html=True)
-st.markdown('<div class="main-sub">Data-Driven Assessment of Community Flood Awareness and Readiness</div>', unsafe_allow_html=True)
+st.markdown(
+    """
+    <div class="header-container">
+        <div class="main-title">Flood Preparedness & Risk Perception</div>
+        <div class="main-sub">A Coastal & Earthy Data Assessment of Community Flood Awareness</div>
+    </div>
+    """, 
+    unsafe_allow_html=True
+)
 
 # Column Mappings
 DEMO_COLS = {
@@ -200,10 +295,10 @@ def kpi(value, label):
 
 # --- SIDEBAR ---
 st.sidebar.markdown("### Dataset Upload")
-file_up = st.sidebar.file_uploader("Upload Flood Awareness Dataset (CSV/Excel)", type=["csv", "xlsx", "xls"])
+file_up = st.sidebar.file_uploader("Upload Flood Awareness Dataset", type=["csv", "xlsx", "xls"])
 
 if file_up is None:
-    st.info("Please upload the Flood Awareness dataset (data clean).xlsx to load the dashboard.")
+    st.info("Please upload the Flood Awareness dataset to load the dashboard.")
     st.stop()
 
 try:
@@ -218,12 +313,15 @@ if len(df) == 0:
     st.stop()
 
 # --- SIDEBAR FILTERS ---
+st.sidebar.markdown("---")
+st.sidebar.markdown("### Drill-Down Filters")
 barangay_list = ["All"] + sorted(df["Barangay"].dropna().unique().tolist()) if "Barangay" in df.columns else ["All"]
-focus = st.sidebar.selectbox("Barangay (Drill-Down)", barangay_list)
+focus = st.sidebar.selectbox("Barangay Location", barangay_list)
 filtered = df if focus == "All" else df[df["Barangay"] == focus]
 
 st.sidebar.markdown("---")
-st.sidebar.markdown(f"**Total Raw Records:** {len(df)}")
+st.sidebar.markdown(f"**Total Valid Records:** {len(df)}")
+st.sidebar.markdown(f"**Currently Viewing:** {len(filtered)}")
 
 # --- TABS ---
 tabs = st.tabs([
@@ -231,9 +329,9 @@ tabs = st.tabs([
     "Preparedness vs Experience",
     "Access to Information",
     "Risk Perception",
-    "Patterns, Correlations & Clustering",
+    "Patterns & Clustering",
     "Predictive Model Evaluation",
-    "Qualitative Challenges & Recommendations"
+    "Qualitative Challenges"
 ])
 
 with tabs[0]:
@@ -253,7 +351,7 @@ with tabs[0]:
         res.columns = ["Barangay", "Respondents"]
         bar = px.bar(res.sort_values("Respondents"), x="Respondents", y="Barangay", orientation="h",
                      title="Respondent Distribution by Barangay", color="Respondents", color_continuous_scale="Teal")
-        bar.update_layout(height=400, coloraxis_showscale=False)
+        bar.update_layout(height=400, coloraxis_showscale=False, plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)")
         st.plotly_chart(bar, use_container_width=True)
         interp(f"Within the current selection, {res.iloc[0,0]} has the highest number of respondents. "
                "This distribution highlights the density of survey coverage across target areas.")
@@ -264,8 +362,8 @@ with tabs[0]:
         chosen = st.selectbox("Select Demographic Variable", demo_cols)
         vc = filtered[chosen].value_counts().reset_index()
         vc.columns = [chosen, "Count"]
-        bar2 = px.bar(vc, x=chosen, y="Count", title=f"Distribution of {chosen}", color="Count", color_continuous_scale="Blues")
-        bar2.update_layout(height=400, coloraxis_showscale=False)
+        bar2 = px.bar(vc, x=chosen, y="Count", title=f"Distribution of {chosen}", color="Count", color_continuous_scale="Teal")
+        bar2.update_layout(height=400, coloraxis_showscale=False, plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)")
         st.plotly_chart(bar2, use_container_width=True)
         interp(f"The modal category for {chosen} is {vc.iloc[0,0]}. Understanding this demographic baseline ensures that programmatic recommendations "
                "are targeted to the dominant population segment.")
@@ -278,9 +376,9 @@ with tabs[1]:
             title="Flood Experience vs. Preparedness Level",
             labels={"Experience_Score": "Experience Severity (1-5)", "Preparedness_Score": "Preparedness Level (1-5)"},
             opacity=0.7,
-            color_discrete_map={"High Preparedness": "#2e7d5b", "Low Preparedness": "#b23b3b"}
+            color_discrete_map={"High Preparedness": "#467A7E", "Low Preparedness": "#C06C5C"}
         )
-        sc.update_layout(height=450)
+        sc.update_layout(height=450, plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)")
         st.plotly_chart(sc, use_container_width=True)
         interp("The scatter plot reveals the relationship between how severely households experience flooding and how prepared they are. "
                "Observations in the upper-right indicate households that face high flood frequency but have adapted with high preparedness. "
@@ -290,9 +388,10 @@ with tabs[1]:
             filtered, x="High_Preparedness", y="Experience_Score",
             title="Flood Experience Severity by Preparedness Group",
             labels={"High_Preparedness": "Preparedness Class (0=Low, 1=High)", "Experience_Score": "Experience Severity"},
-            color="High_Preparedness"
+            color="High_Preparedness",
+            color_discrete_sequence=["#C06C5C", "#467A7E"]
         )
-        box.update_layout(height=400)
+        box.update_layout(height=400, plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)")
         st.plotly_chart(box, use_container_width=True)
         interp("By comparing the median experience scores across the two preparedness groups, we can assess whether severe historical flooding "
                "serves as a catalyst for households to become more prepared.")
@@ -304,8 +403,8 @@ with tabs[2]:
         kpi(f"{filtered['Info_Score'].mean():.2f} / 5", "Mean Access to Information Score")
         
         hist = px.histogram(filtered, x="Info_Score", nbins=10, title="Distribution of Access to Disaster Information",
-                            color_discrete_sequence=["#0b3d5c"])
-        hist.update_layout(height=350)
+                            color_discrete_sequence=["#1A3644"])
+        hist.update_layout(height=350, plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)")
         st.plotly_chart(hist, use_container_width=True)
         interp(f"The average access to information score is {filtered['Info_Score'].mean():.2f}. A right-skewed distribution indicates that most "
                "households feel they receive timely warnings and know where to find official information.")
@@ -316,7 +415,7 @@ with tabs[2]:
             bar = px.bar(area_info, x="Info_Score", y="Barangay", orientation="h",
                          title="Average Access to Information by Barangay",
                          color="Info_Score", color_continuous_scale="Teal")
-            bar.update_layout(height=400, coloraxis_showscale=False)
+            bar.update_layout(height=400, coloraxis_showscale=False, plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)")
             st.plotly_chart(bar, use_container_width=True)
             best_area = area_info.iloc[0]
             worst_area = area_info.iloc[-1]
@@ -335,9 +434,9 @@ with tabs[3]:
                 filtered, x="Risk_Score", y="Preparedness_Score",
                 title="Risk Perception vs. Actual Preparedness",
                 labels={"Risk_Score": "Risk Perception (1-5)", "Preparedness_Score": "Preparedness (1-5)"},
-                color="Preparedness_Score", color_continuous_scale="RdYlGn", opacity=0.7
+                color="Preparedness_Score", color_continuous_scale="Teal", opacity=0.7
             )
-            sc.update_layout(height=450)
+            sc.update_layout(height=450, plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)")
             st.plotly_chart(sc, use_container_width=True)
             interp("This chart highlights the gap between perception and action. A cluster in the upper-left indicates households that "
                    "recognize the high risk but fail to prepare (the 'knowledge-action gap'). A cluster in the lower-right indicates households "
@@ -351,9 +450,9 @@ with tabs[4]:
     corr_cols = [c for c in ["Preparedness_Score", "Experience_Score", "Info_Score", "Risk_Score"] if c in filtered.columns]
     if len(corr_cols) >= 2:
         corr = filtered[corr_cols].corr(method="pearson")
-        heat = px.imshow(corr, text_auto=".2f", aspect="auto", color_continuous_scale="RdBu_r", zmin=-1, zmax=1,
+        heat = px.imshow(corr, text_auto=".2f", aspect="auto", color_continuous_scale="Teal", zmin=-1, zmax=1,
                          title="Pearson Correlation Matrix of Composite Scores")
-        heat.update_layout(height=400)
+        heat.update_layout(height=400, plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)")
         st.plotly_chart(heat, use_container_width=True)
         interp("The correlation matrix reveals which factors move together. A strong positive correlation between Info_Score and Preparedness_Score "
                "suggests that access to timely information is a key driver of preparedness.")
@@ -367,8 +466,9 @@ with tabs[4]:
             cdf = X.copy()
             cdf["Cluster"] = labels
             fig = px.scatter(cdf, x="Experience_Score", y="Preparedness_Score", color=cdf["Cluster"].astype(str),
-                             title=f"K-Means Clustering of Households (K={k})", opacity=0.8)
-            fig.update_layout(height=450)
+                             title=f"K-Means Clustering of Households (K={k})", opacity=0.8,
+                             color_discrete_sequence=px.colors.sequential.Teal)
+            fig.update_layout(height=450, plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)")
             st.plotly_chart(fig, use_container_width=True)
             st.dataframe(cdf.groupby("Cluster")[corr_cols].mean().round(2), use_container_width=True)
             interp("Clustering segments households into distinct risk profiles. For example, one cluster may represent 'High Risk / Low Preparedness' "
@@ -400,7 +500,8 @@ with tabs[5]:
             res_df = pd.DataFrame(results).sort_values("F1-Score", ascending=False)
             st.dataframe(res_df, use_container_width=True, hide_index=True)
             bar = px.bar(res_df, x="Model", y="F1-Score", title="Model Performance Comparison (Target: High vs. Low Preparedness)",
-                         color="Model")
+                         color="Model", color_discrete_sequence=["#1A3644", "#467A7E", "#C29B6E"])
+            bar.update_layout(plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)")
             st.plotly_chart(bar, use_container_width=True)
             best = res_df.iloc[0]
             interp(f"The best-performing model is {best['Model']} with an F1-Score of {best['F1-Score']:.3f}. "
@@ -425,8 +526,8 @@ with tabs[6]:
         if freq:
             freq_df = pd.DataFrame(freq, columns=["Keyword", "Frequency"])
             bar = px.bar(freq_df, x="Frequency", y="Keyword", orientation="h", title="Top Keywords in 'Biggest Challenge' Responses",
-                         color="Frequency", color_continuous_scale="Reds")
-            bar.update_layout(height=500, coloraxis_showscale=False)
+                         color="Frequency", color_continuous_scale="Teal")
+            bar.update_layout(height=500, coloraxis_showscale=False, plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)")
             st.plotly_chart(bar, use_container_width=True)
             interp("The most frequent keywords in the open-ended challenge responses reveal the root causes preventing preparedness. "
                    "Terms like 'kulang', 'kwarta', 'financial', and 'information' highlight that both economic constraints and communication gaps "

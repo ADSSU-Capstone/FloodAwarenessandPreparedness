@@ -353,6 +353,12 @@ def train_and_evaluate(data_for_model, predictor_cols, target_col):
             pipe, X_train, y_train, cv=cv,
             scoring={
                 "macro_f1": scorer,
+                "macro_precision": make_scorer(
+                    precision_score, labels=CLASS_ORDER, average="macro", zero_division=0
+                ),
+                "macro_recall": make_scorer(
+                    recall_score, labels=CLASS_ORDER, average="macro", zero_division=0
+                ),
                 "accuracy": "accuracy",
                 "weighted_f1": "f1_weighted"
             },
@@ -362,9 +368,11 @@ def train_and_evaluate(data_for_model, predictor_cols, target_col):
         )
         cv_rows.append({
             "Algorithm": name,
+            "Mean CV Accuracy": scores["test_accuracy"].mean(),
+            "Mean CV Macro-Precision": scores["test_macro_precision"].mean(),
+            "Mean CV Macro-Recall": scores["test_macro_recall"].mean(),
             "Mean CV Macro-F1": scores["test_macro_f1"].mean(),
             "SD CV Macro-F1": scores["test_macro_f1"].std(),
-            "Mean CV Accuracy": scores["test_accuracy"].mean(),
             "Mean CV Weighted-F1": scores["test_weighted_f1"].mean()
         })
         fitted_candidates[name] = (pipe, scores)
@@ -418,8 +426,10 @@ def train_and_evaluate(data_for_model, predictor_cols, target_col):
             fold_rows.append({
                 "Algorithm": model_name,
                 "Fold": f"Fold {fold_index + 1}",
-                "Macro-F1": model_scores["test_macro_f1"][fold_index],
                 "Accuracy": model_scores["test_accuracy"][fold_index],
+                "Macro-Precision": model_scores["test_macro_precision"][fold_index],
+                "Macro-Recall": model_scores["test_macro_recall"][fold_index],
+                "Macro-F1": model_scores["test_macro_f1"][fold_index],
                 "Weighted-F1": model_scores["test_weighted_f1"][fold_index]
             })
 
@@ -488,13 +498,30 @@ with tabs[2]:
                     "Mean 5-fold CV Macro-F1"
                 )
                 st.caption(
-                    f"CV Accuracy: {row['Mean CV Accuracy']:.3f} · "
-                    f"CV Weighted-F1: {row['Mean CV Weighted-F1']:.3f}"
+                    f"Accuracy: {row['Mean CV Accuracy']:.3f} · "
+                    f"Macro-Precision: {row['Mean CV Macro-Precision']:.3f}\n\n"
+                    f"Macro-Recall: {row['Mean CV Macro-Recall']:.3f} · "
+                    f"Weighted-F1: {row['Mean CV Weighted-F1']:.3f}"
                 )
 
         st.markdown("#### Cross-validation comparison")
+        st.caption(
+            "Mean scores across the five validation folds. Macro-F1 is the "
+            "primary metric used to select the best-performing algorithm."
+        )
+        display_cv = results["cv_results"].rename(columns={
+            "Mean CV Accuracy": "Accuracy",
+            "Mean CV Macro-Precision": "Macro-Precision",
+            "Mean CV Macro-Recall": "Macro-Recall",
+            "Mean CV Macro-F1": "Macro-F1",
+            "SD CV Macro-F1": "Macro-F1 SD",
+            "Mean CV Weighted-F1": "Weighted-F1"
+        })
         st.dataframe(
-            results["cv_results"].round(4),
+            display_cv[[
+                "Algorithm", "Accuracy", "Macro-Precision", "Macro-Recall",
+                "Macro-F1", "Macro-F1 SD", "Weighted-F1"
+            ]].round(3),
             hide_index=True,
             use_container_width=True
         )
@@ -507,20 +534,24 @@ with tabs[2]:
         st.plotly_chart(cv_plot, use_container_width=True)
 
         with st.expander("View the five-fold scores for each algorithm"):
-            st.dataframe(
-                results["cv_folds"].pivot(
-                    index="Fold", columns="Algorithm", values="Macro-F1"
-                ).round(4),
-                use_container_width=True
+            fold_metric = st.selectbox(
+                "Choose fold metric to inspect",
+                ["Macro-F1", "Accuracy", "Macro-Precision", "Macro-Recall", "Weighted-F1"],
+                key="fold_metric_display"
             )
+            fold_table = results["cv_folds"].pivot(
+                index="Fold", columns="Algorithm", values=fold_metric
+            )
+            st.dataframe(fold_table.round(3), use_container_width=True)
             st.caption(
-                "Each value is the validation Macro-F1 for that fold. "
-                "The algorithm with the highest mean Macro-F1 is selected."
+                "These are validation-fold scores from the training data. "
+                "They are not final test-set results."
             )
 
         st.success(
-            f"Selected best-performing model: {results['best_name']} — "
-            "highest mean five-fold cross-validation Macro-F1."
+            f"Selected model: {results['best_name']} "
+            f"(highest mean five-fold CV Macro-F1: "
+            f"{results['cv_results'].iloc[0]['Mean CV Macro-F1']:.3f})"
         )
 
         st.markdown("#### Training and test class distribution")
@@ -538,7 +569,11 @@ with tabs[2]:
                 "households, so the model may fail to identify that category reliably."
             )
 
-        st.markdown("#### Final evaluation on the reserved 20% test set")
+        st.markdown("#### Final evaluation of the selected model")
+        st.caption(
+            "These results come from the reserved 20% test set and apply only "
+            "to the selected algorithm. The test set was not used to choose the model."
+        )
         metric_cols = st.columns(5)
         for col, (label, value) in zip(metric_cols, results["metrics"].items()):
             with col:

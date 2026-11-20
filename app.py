@@ -649,9 +649,7 @@ with tabs[2]:
 
 with tabs[3]:
     st.subheader("Most Influential Predictor Variables")
-    try:
-        results
-    except NameError:
+    if "results" not in globals():
         results = None
 
     if results is None:

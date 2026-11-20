@@ -13,6 +13,7 @@ from sklearn.compose import ColumnTransformer
 from sklearn.preprocessing import OneHotEncoder, OrdinalEncoder
 from sklearn.impute import SimpleImputer
 from sklearn.pipeline import Pipeline
+from sklearn.base import clone
 from sklearn.model_selection import train_test_split, StratifiedKFold, cross_validate
 from sklearn.tree import DecisionTreeClassifier
 from sklearn.ensemble import RandomForestClassifier
@@ -21,7 +22,6 @@ from sklearn.metrics import (
     accuracy_score, precision_score, recall_score, f1_score,
     confusion_matrix, classification_report, make_scorer
 )
-from sklearn.inspection import permutation_importance
 
 warnings.filterwarnings("ignore", category=FutureWarning)
 
@@ -408,17 +408,64 @@ def train_and_evaluate(data_for_model, predictor_cols, target_col):
     test_rows["Actual"] = y_test
     test_rows["Predicted"] = y_pred
 
-    # Permutation importance shuffles original columns, grouping the influence
-    # of encoded categories under their original questionnaire variable.
-    perm = permutation_importance(
-        best_pipe, X_test, y_test, scoring=scorer,
-        n_repeats=20, random_state=42, n_jobs=1
-    )
-    importance = pd.DataFrame({
-        "Predictor": predictor_cols,
-        "Mean Importance": perm.importances_mean,
-        "SD": perm.importances_std
-    }).sort_values("Mean Importance", ascending=False)
+    # Chapter 3 pages 95–96: calculate permutation importance separately
+    # for all three algorithms using only the validation folds of the 80%
+    # training dataset. Shuffle each ORIGINAL questionnaire predictor column
+    # before preprocessing, so encoded columns remain grouped as one variable.
+    # The reserved 20% test set is not used for predictor-importance analysis.
+    importance_by_model = {}
+    importance_rng = np.random.default_rng(42)
+
+    for model_name, classifier in model_defs.items():
+        fold_importance_values = {column: [] for column in predictor_cols}
+
+        for fold_train_idx, fold_valid_idx in cv.split(X_train, y_train):
+            X_fold_train = X_train.iloc[fold_train_idx].copy()
+            y_fold_train = y_train.iloc[fold_train_idx].copy()
+            X_fold_valid = X_train.iloc[fold_valid_idx].copy()
+            y_fold_valid = y_train.iloc[fold_valid_idx].copy()
+
+            fold_pipe = make_pipeline(build_preprocessor(X_fold_train), clone(classifier))
+            fold_pipe.fit(X_fold_train, y_fold_train)
+
+            baseline_pred = fold_pipe.predict(X_fold_valid)
+            baseline_score = f1_score(
+                y_fold_valid, baseline_pred, labels=CLASS_ORDER,
+                average="macro", zero_division=0
+            )
+
+            for predictor in predictor_cols:
+                repeat_drops = []
+                original_values = X_fold_valid[predictor].to_numpy(copy=True)
+
+                for _ in range(10):
+                    shuffled_valid = X_fold_valid.copy()
+                    shuffled_valid[predictor] = importance_rng.permutation(original_values)
+                    shuffled_pred = fold_pipe.predict(shuffled_valid)
+                    shuffled_score = f1_score(
+                        y_fold_valid, shuffled_pred, labels=CLASS_ORDER,
+                        average="macro", zero_division=0
+                    )
+                    repeat_drops.append(baseline_score - shuffled_score)
+
+                fold_importance_values[predictor].extend(repeat_drops)
+
+        importance_by_model[model_name] = pd.DataFrame({
+            "Predictor": predictor_cols,
+            "Mean Importance": [
+                float(np.mean(fold_importance_values[column]))
+                for column in predictor_cols
+            ],
+            "SD": [
+                float(np.std(fold_importance_values[column], ddof=1))
+                if len(fold_importance_values[column]) > 1 else 0.0
+                for column in predictor_cols
+            ],
+            "Validation Fold-Repetitions": [
+                len(fold_importance_values[column])
+                for column in predictor_cols
+            ]
+        }).sort_values("Mean Importance", ascending=False).reset_index(drop=True)
 
     fold_rows = []
     for model_name, (_, model_scores) in fitted_candidates.items():
@@ -438,7 +485,7 @@ def train_and_evaluate(data_for_model, predictor_cols, target_col):
         "cv_folds": pd.DataFrame(fold_rows),
         "best_name": best_name,
         "metrics": final_metrics, "confusion": cm, "report": report,
-        "importance": importance, "predictions": test_rows,
+        "importance_by_model": importance_by_model, "predictions": test_rows,
         "X_train": X_train, "X_test": X_test,
         "y_train": y_train, "y_test": y_test,
         "model": best_pipe
@@ -606,21 +653,70 @@ with tabs[3]:
         results
     except NameError:
         results = None
+
     if results is None:
-        st.info("Complete the model evaluation first. If training failed, review the class counts and dataset.")
-    else:
-        imp = results["importance"].head(15).sort_values("Mean Importance")
-        fig = px.bar(
-            imp, x="Mean Importance", y="Predictor", orientation="h",
-            error_x="SD", title="Top Predictor Variables — Permutation Importance"
+        st.info(
+            "Complete the model evaluation first. If training failed, "
+            "review the class counts and dataset."
         )
+    else:
+        st.caption(
+            "Permutation importance is calculated separately for Decision Tree, "
+            "Random Forest, and Categorical Naïve Bayes using the five validation "
+            "folds within the 80% training dataset."
+        )
+        selected_importance_model = st.selectbox(
+            "Select algorithm",
+            ["Decision Tree", "Random Forest", "Categorical Naive Bayes"],
+            key="importance_algorithm"
+        )
+        importance_df = results["importance_by_model"][selected_importance_model].copy()
+
+        top_n = st.slider(
+            "Number of predictors to display",
+            min_value=5, max_value=min(30, len(importance_df)),
+            value=min(15, len(importance_df)),
+            key="importance_top_n"
+        )
+        top_importance = importance_df.head(top_n).sort_values("Mean Importance")
+
+        fig = px.bar(
+            top_importance,
+            x="Mean Importance",
+            y="Predictor",
+            orientation="h",
+            error_x="SD",
+            title=f"Predictor Importance — {selected_importance_model}",
+            labels={
+                "Mean Importance": "Mean decrease in validation Macro-F1",
+                "Predictor": "Original questionnaire predictor"
+            }
+        )
+        fig.add_vline(x=0, line_dash="dash", line_color="gray")
+        fig.update_layout(height=max(450, 28 * len(top_importance)))
         st.plotly_chart(fig, use_container_width=True)
-        st.dataframe(results["importance"].round(5), hide_index=True, use_container_width=True)
+
+        st.markdown("#### Predictor importance ranking")
+        st.dataframe(
+            importance_df.round(5),
+            hide_index=True,
+            use_container_width=True
+        )
+
         add_note(
-            "Permutation importance measures the decrease in the selected model's "
-            "Macro-F1 when one original predictor column is shuffled. It is an "
-            "association with model performance, not evidence that the variable "
-            "directly causes household preparedness."
+            "For each validation fold, the model's baseline Macro-F1 is calculated. "
+            "One original questionnaire predictor is then shuffled while the other "
+            "predictors remain unchanged. The decrease in Macro-F1 is recorded. "
+            "Each predictor is shuffled 10 times per fold, and the results are "
+            "averaged across the five folds. This produces separate rankings for "
+            "all three algorithms. Encoded columns are grouped automatically because "
+            "the original predictor is shuffled before preprocessing."
+        )
+        add_warning(
+            "Permutation importance indicates how much a predictor contributes to "
+            "the model's validation performance; it does not establish that the "
+            "predictor causes household flood preparedness. Negative values can occur "
+            "when shuffling a predictor slightly improves validation performance."
         )
 
 with tabs[4]:
